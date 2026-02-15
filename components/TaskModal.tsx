@@ -67,9 +67,12 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
         }
     }, [editTask, isOpen]);
 
+    const [error, setError] = useState<string | null>(null);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        setError(null);
 
         const time = `${formData.hours}hr ${formData.minutes}min`;
         const payload: any = {
@@ -90,13 +93,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
             ? supabase.from('tasks').update(payload).eq('id', editTask.id)
             : supabase.from('tasks').insert(payload);
 
-        const { error } = await query;
+        const { error: submitError } = await query;
 
-        if (!error) {
+        if (!submitError) {
             onSuccess();
             onClose();
         } else {
-            alert(error.message);
+            setError(submitError.message);
         }
         setLoading(false);
     };
@@ -214,6 +217,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                             </div>
                         </div>
                     </div>
+                    {error && (
+                        <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-[11px] font-bold text-red-500 text-center">
+                            {error}
+                        </div>
+                    )}
 
                     <div className="pt-2 flex gap-3">
                         <button type="button" onClick={onClose} className="flex-1 py-3 border border-gray-100 rounded-xl text-sm font-bold text-gray-400 hover:bg-gray-50 transition-colors">
