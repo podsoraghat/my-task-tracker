@@ -16,6 +16,12 @@ export const AuthOverlay: React.FC = () => {
         setLoading(true);
         setMessage(null);
 
+        if (isSignUp && !email.toLowerCase().endsWith('@blufig.digital')) {
+            setMessage({ type: 'error', text: 'Registration is restricted to @blufig.digital emails only.' });
+            setLoading(false);
+            return;
+        }
+
         const { error } = isSignUp
             ? await supabase.auth.signUp({ email, password })
             : await supabase.auth.signInWithPassword({ email, password });
