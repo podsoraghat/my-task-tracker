@@ -43,7 +43,7 @@ export const AuthOverlay: React.FC = () => {
                         <LayoutGrid className="w-8 h-8" />
                     </div>
                     <h2 className="text-2xl font-bold text-gray-900">{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
-                    <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mt-1">TaskTracker PRO</p>
+                    <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mt-1">Zive PRO</p>
                 </div>
 
                 <form onSubmit={handleAuth} className="space-y-4">

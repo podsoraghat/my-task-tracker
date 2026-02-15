@@ -20,7 +20,7 @@ export const Navbar = () => {
                         <LayoutGrid className="w-5 h-5" />
                     </div>
                     <span className="text-lg font-bold text-gray-900 tracking-tight">
-                        TaskTracker <span className="text-blue-600 text-[10px] align-top px-1.5 py-0.5 bg-blue-50 rounded-full ml-1 font-bold">PRO</span>
+                        Zive <span className="text-blue-600 text-[10px] align-top px-1.5 py-0.5 bg-blue-50 rounded-full ml-1 font-bold">PRO</span>
                     </span>
                 </div>
 
