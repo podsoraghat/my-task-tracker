@@ -16,8 +16,8 @@ export const Navbar = () => {
         <nav className="bg-white border-b border-gray-100 sticky top-0 z-50 backdrop-blur-md bg-white/80">
             <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                    <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-lg shadow-blue-100">
-                        <LayoutGrid className="w-5 h-5" />
+                    <div className="bg-white p-1 rounded-lg shadow-sm border border-gray-100">
+                        <img src="/logo.svg" alt="Zive Logo" className="w-6 h-6" />
                     </div>
                     <span className="text-lg font-bold text-gray-900 tracking-tight">
                         Zive <span className="text-blue-600 text-[10px] align-top px-1.5 py-0.5 bg-blue-50 rounded-full ml-1 font-bold">PRO</span>

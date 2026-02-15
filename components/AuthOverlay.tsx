@@ -39,8 +39,8 @@ export const AuthOverlay: React.FC = () => {
         <div className="fixed inset-0 bg-gray-900 z-[100] flex items-center justify-center p-4">
             <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm">
                 <div className="flex flex-col items-center mb-6">
-                    <div className="bg-blue-600 p-3 rounded-xl text-white mb-4 shadow-xl shadow-blue-100">
-                        <LayoutGrid className="w-8 h-8" />
+                    <div className="mb-4">
+                        <img src="/logo.svg" alt="Zive Logo" className="w-16 h-16" />
                     </div>
                     <h2 className="text-2xl font-bold text-gray-900">{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
                     <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mt-1">Zive PRO</p>
