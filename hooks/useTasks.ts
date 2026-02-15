@@ -12,6 +12,7 @@ export interface Task {
     status: string;
     time_taken: string;
     user_name: string;
+    user_id: string;
     created_at: string;
 }
 

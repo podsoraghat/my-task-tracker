@@ -4,6 +4,7 @@ import React from 'react';
 import { Pencil, Trash2, Search, Filter, ArrowUpDown, MoreHorizontal } from 'lucide-react';
 import { Task } from '@/hooks/useTasks';
 import { statusConfig } from '@/config/status';
+import { useAuth } from '@/context/AuthContext';
 
 interface TaskTableProps {
     tasks: Task[];
@@ -26,6 +27,8 @@ export const TaskTable: React.FC<TaskTableProps> = ({
     onEdit,
     onDelete
 }) => {
+    const { user } = useAuth();
+
     const handleSort = (column: string) => {
         setSort({
             column,
@@ -123,12 +126,16 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-mono font-medium">{task.time_taken}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right">
                                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button onClick={() => onEdit(task)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
-                                                <Pencil className="w-4 h-4" />
-                                            </button>
-                                            <button onClick={() => onDelete(task.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
+                                            {user?.id === task.user_id && (
+                                                <>
+                                                    <button onClick={() => onEdit(task)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
+                                                        <Pencil className="w-4 h-4" />
+                                                    </button>
+                                                    <button onClick={() => onDelete(task.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </>
+                                            )}
                                         </div>
                                     </td>
                                 </tr>
