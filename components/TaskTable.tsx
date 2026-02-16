@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { Pencil, Trash2, Search, Filter, ArrowUpDown, MoreHorizontal, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { Pencil, Trash2, Search, Filter, ArrowUpDown, MoreHorizontal, ChevronLeft, ChevronRight, Calendar, X } from 'lucide-react';
 import { Task, TimePreset } from '@/hooks/useTasks';
 import { statusConfig } from '@/config/status';
 import { useAuth } from '@/context/AuthContext';
@@ -163,6 +163,16 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                             />
                         </div>
                     )}
+
+                    {/* Reset Button */}
+                    <button
+                        onClick={onReset}
+                        className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all border border-transparent hover:border-red-100 ml-auto"
+                        title="Clear all filters"
+                    >
+                        <X className="w-3.5 h-3.5" />
+                        Clear All
+                    </button>
                 </div>
             </div>
 
