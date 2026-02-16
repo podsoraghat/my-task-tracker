@@ -19,6 +19,7 @@ interface TaskTableProps {
     navigateTime: (direction: 'prev' | 'next') => void;
     activeRange: { start: Date; end: Date } | null;
     referenceDate: Date;
+    onReset: () => void;
 }
 
 export const TaskTable: React.FC<TaskTableProps> = ({
@@ -32,7 +33,8 @@ export const TaskTable: React.FC<TaskTableProps> = ({
     onDelete,
     navigateTime,
     activeRange,
-    referenceDate
+    referenceDate,
+    onReset
 }) => {
     const { user } = useAuth();
 

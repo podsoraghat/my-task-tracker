@@ -23,7 +23,8 @@ export default function Home() {
     refresh,
     navigateTime,
     activeRange,
-    referenceDate
+    referenceDate,
+    resetFilters
   } = useTasks();
 
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -118,6 +119,7 @@ export default function Home() {
             navigateTime={navigateTime}
             activeRange={activeRange}
             referenceDate={referenceDate}
+            onReset={resetFilters}
           />
         </div>
       </main>

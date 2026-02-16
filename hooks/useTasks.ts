@@ -118,6 +118,20 @@ export const useTasks = () => {
         return sorted;
     }, [filteredTasks, sort]);
 
+    const resetFilters = () => {
+        setFilters({
+            user: '',
+            client: '',
+            type: '',
+            status: '',
+            search: '',
+            startDate: '',
+            endDate: '',
+            preset: 'all'
+        });
+        setReferenceDate(new Date());
+    };
+
     return {
         tasks: sortedTasks,
         allTasks: tasks,
@@ -130,6 +144,7 @@ export const useTasks = () => {
         refresh: loadTasks,
         navigateTime,
         activeRange,
-        referenceDate
+        referenceDate,
+        resetFilters
     };
 };
