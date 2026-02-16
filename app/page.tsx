@@ -72,37 +72,40 @@ export default function Home() {
       <main className="flex-1 p-6 scroll-smooth">
         <div className="max-w-7xl mx-auto space-y-6">
 
-          {/* Action Bar */}
-          <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-            <div>
-              <h2 className="text-lg font-bold text-gray-900 tracking-tight">Dashboard</h2>
-              <p className="text-xs text-gray-500 font-medium mt-0.5">Manage your daily tasks and workflow</p>
-            </div>
+          {/* Sticky Header Container */}
+          <div className="sticky top-16 z-30 bg-gray-50/80 backdrop-blur-md py-2 -mx-2 px-2">
+            {/* Action Bar */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 tracking-tight">Dashboard</h2>
+                <p className="text-xs text-gray-500 font-medium mt-0.5">Manage your daily tasks and workflow</p>
+              </div>
 
-            <div className="flex gap-2 w-full sm:w-auto">
-              <button
-                onClick={() => setManagerConfig({ title: 'Client', table: 'clients', isOpen: true })}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-100 transition-all border border-gray-100"
-              >
-                <Users className="w-4 h-4" />
-                <span className="hidden md:inline">Clients</span>
-              </button>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => setManagerConfig({ title: 'Client', table: 'clients', isOpen: true })}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-100 transition-all border border-gray-100"
+                >
+                  <Users className="w-4 h-4" />
+                  <span className="hidden md:inline">Clients</span>
+                </button>
 
-              <button
-                onClick={() => setManagerConfig({ title: 'Asset', table: 'assets', isOpen: true })}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-100 transition-all border border-gray-100"
-              >
-                <Tag className="w-4 h-4" />
-                <span className="hidden md:inline">Assets</span>
-              </button>
+                <button
+                  onClick={() => setManagerConfig({ title: 'Asset', table: 'assets', isOpen: true })}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-100 transition-all border border-gray-100"
+                >
+                  <Tag className="w-4 h-4" />
+                  <span className="hidden md:inline">Assets</span>
+                </button>
 
-              <button
-                onClick={openNewTaskModal}
-                className="flex-[2] sm:flex-none flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all"
-              >
-                <Plus className="w-4 h-4" />
-                New Task
-              </button>
+                <button
+                  onClick={openNewTaskModal}
+                  className="flex-[2] sm:flex-none flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  New Task
+                </button>
+              </div>
             </div>
           </div>
 
