@@ -13,7 +13,18 @@ import { supabase } from "@/lib/supabase";
 
 export default function Home() {
   const { user, loading: authLoading } = useAuth();
-  const { tasks, loading: tasksLoading, filters, setFilters, sort, setSort, refresh } = useTasks();
+  const {
+    tasks,
+    loading: tasksLoading,
+    filters,
+    setFilters,
+    sort,
+    setSort,
+    refresh,
+    navigateTime,
+    activeRange,
+    referenceDate
+  } = useTasks();
 
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
@@ -104,6 +115,9 @@ export default function Home() {
             setSort={setSort}
             onEdit={openEditModal}
             onDelete={handleDeleteTask}
+            navigateTime={navigateTime}
+            activeRange={activeRange}
+            referenceDate={referenceDate}
           />
         </div>
       </main>
