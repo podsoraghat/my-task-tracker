@@ -27,7 +27,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
         start_date: new Date().toISOString().split('T')[0],
         status: 'In Progress',
         hours: '0',
-        minutes: '0'
+        minutes: '0',
+        asset_count: 1
     });
 
     useEffect(() => {
@@ -52,7 +53,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                 start_date: editTask.start_date,
                 status: editTask.status,
                 hours: timeParts ? timeParts[1] : '0',
-                minutes: timeParts ? timeParts[2] : '0'
+                minutes: timeParts ? timeParts[2] : '0',
+                asset_count: editTask.asset_count || 1
             });
         } else {
             setFormData({
@@ -62,7 +64,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                 start_date: new Date().toISOString().split('T')[0],
                 status: 'In Progress',
                 hours: '0',
-                minutes: '0'
+                minutes: '0',
+                asset_count: 1
             });
         }
     }, [editTask, isOpen]);
@@ -82,6 +85,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
             start_date: formData.start_date,
             status: formData.status,
             time_taken: time,
+            asset_count: parseInt(formData.asset_count.toString()) || 1,
         };
 
         if (!editTask) {
@@ -186,6 +190,19 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                                 </select>
                                 <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                             </div>
+                        </div>
+
+                        <div className="space-y-1.5 col-span-2">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Asset Count</label>
+                            <input
+                                type="number"
+                                required
+                                min="1"
+                                value={formData.asset_count}
+                                onChange={(e) => setFormData({ ...formData, asset_count: e.target.value ? parseInt(e.target.value) : 1 })}
+                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                                placeholder="1"
+                            />
                         </div>
 
                         <div className="space-y-1.5 col-span-2">

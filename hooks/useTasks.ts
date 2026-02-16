@@ -14,6 +14,7 @@ export interface Task {
     time_taken: string;
     user_name: string;
     user_id: string;
+    asset_count: number;
     created_at: string;
 }
 

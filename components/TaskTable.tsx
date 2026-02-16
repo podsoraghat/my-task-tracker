@@ -181,7 +181,7 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                     <table className="w-full text-left">
                         <thead className="bg-gray-50/50">
                             <tr>
-                                {['user_name', 'client_name', 'asset_type', 'task_name', 'start_date', 'status', 'time_taken'].map((col) => (
+                                {['user_name', 'client_name', 'asset_type', 'task_name', 'asset_count', 'start_date', 'status', 'time_taken'].map((col) => (
                                     <th
                                         key={col}
                                         onClick={() => handleSort(col)}
@@ -225,6 +225,9 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{task.client_name}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{task.asset_type || '-'}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">{task.task_name}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">
+                                            <span className="bg-gray-100 px-2 py-1 rounded text-[11px]">{task.asset_count || 1}</span>
+                                        </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(task.start_date)}</td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${statusConfig[task.status] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
