@@ -4,6 +4,22 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addDays, addWeeks, addMonths, isWithinInterval, parseISO } from 'date-fns';
 
+export interface Project {
+    id: string;
+    name: string;
+    client_name: string;
+    start_date: string;
+    deadline: string;
+    status: string;
+    created_at: string;
+}
+
+export interface ProjectMember {
+    project_id: string;
+    user_id: string;
+    user_name: string | null;
+}
+
 export interface Task {
     id: string;
     client_name: string;
@@ -14,14 +30,21 @@ export interface Task {
     time_taken: string;
     user_name: string;
     user_id: string;
+    assigned_to: string | null;
+    assigned_to_name: string | null;
     asset_count: number;
     created_at: string;
+    project_id: string | null;
+    total_seconds: number;
+    timer_start: string | null;
 }
 
 export type TimePreset = 'today' | 'week' | 'month' | 'custom' | 'all';
 
 export const useTasks = () => {
     const [tasks, setTasks] = useState<Task[]>([]);
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +56,9 @@ export const useTasks = () => {
         search: '',
         startDate: '',
         endDate: '',
-        preset: 'all' as TimePreset
+        preset: 'all' as TimePreset,
+        projectId: '' as string,
+        showOnlyMine: true // Default to "My Tasks"
     });
 
     const [referenceDate, setReferenceDate] = useState(new Date());
@@ -43,16 +68,22 @@ export const useTasks = () => {
         direction: 'desc' as 'asc' | 'desc'
     });
 
-    const loadTasks = async () => {
+    const loadData = async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('tasks')
-                .select('*')
-                .order('start_date', { ascending: false });
+            const [tasksRes, projectsRes, membersRes] = await Promise.all([
+                supabase.from('tasks').select('*').order('start_date', { ascending: false }),
+                supabase.from('projects').select('*').order('created_at', { ascending: false }),
+                supabase.from('project_members').select('*')
+            ]);
 
-            if (error) throw error;
-            setTasks(data || []);
+            if (tasksRes.error) throw tasksRes.error;
+            if (projectsRes.error) throw projectsRes.error;
+            if (membersRes.error) throw membersRes.error;
+
+            setTasks(tasksRes.data || []);
+            setProjects(projectsRes.data || []);
+            setProjectMembers(membersRes.data || []);
         } catch (err: any) {
             setError(err.message);
         } finally {
@@ -61,7 +92,7 @@ export const useTasks = () => {
     };
 
     useEffect(() => {
-        loadTasks();
+        loadData();
     }, []);
 
     const navigateTime = (direction: 'prev' | 'next') => {
@@ -83,14 +114,25 @@ export const useTasks = () => {
 
     const filteredTasks = useMemo(() => {
         return tasks.filter(task => {
-            const matchesUser = !filters.user || task.user_name === filters.user;
+            // "My Tasks" Logic: Show only if current user is the creator OR assignee
+            // (Assigned To Me = assigned_to matches current UUID)
+            // But since useTasks doesn't know 'auth.user', we'll handle the actual ID filtering 
+            // in the component or pass it in. For now, we'll keep the logic ready.
+
+            const matchesProject = !filters.projectId || task.project_id === filters.projectId;
+
+            const matchesUser = !filters.user ||
+                task.user_name === filters.user ||
+                task.assigned_to_name === filters.user;
+
             const matchesClient = !filters.client || task.client_name === filters.client;
             const matchesType = !filters.type || task.asset_type === filters.type;
             const matchesStatus = !filters.status || task.status === filters.status;
             const matchesSearch = !filters.search ||
                 task.task_name.toLowerCase().includes(filters.search.toLowerCase()) ||
                 task.client_name.toLowerCase().includes(filters.search.toLowerCase()) ||
-                task.user_name.toLowerCase().includes(filters.search.toLowerCase());
+                task.user_name.toLowerCase().includes(filters.search.toLowerCase()) ||
+                (task.assigned_to_name || "").toLowerCase().includes(filters.search.toLowerCase());
 
             let matchesDate = true;
             if (activeRange) {
@@ -98,16 +140,44 @@ export const useTasks = () => {
                 matchesDate = isWithinInterval(taskDate, activeRange);
             }
 
-            return matchesUser && matchesClient && matchesType && matchesStatus && matchesSearch && matchesDate;
+            return matchesProject && matchesUser && matchesClient && matchesType && matchesStatus && matchesSearch && matchesDate;
         });
     }, [tasks, filters, activeRange]);
+
+    const filteredProjects = useMemo(() => {
+        return projects.filter(project => {
+            const matchesSearch = !filters.search ||
+                project.name.toLowerCase().includes(filters.search.toLowerCase()) ||
+                project.client_name.toLowerCase().includes(filters.search.toLowerCase());
+
+            const matchesStatus = !filters.status || project.status === filters.status;
+
+            return matchesSearch && matchesStatus;
+        });
+    }, [projects, filters]);
 
     const sortedTasks = useMemo(() => {
         const sorted = [...filteredTasks];
         if (sort.column) {
             sorted.sort((a: any, b: any) => {
-                const valA = a[sort.column] || '';
-                const valB = b[sort.column] || '';
+                let valA = a[sort.column];
+                let valB = b[sort.column];
+
+                // Logic hardening: Handle time_taken parsing (e.g., "1hr 30min")
+                if (sort.column === 'time_taken') {
+                    const parseTime = (str: string) => {
+                        if (!str) return 0;
+                        const hrs = parseInt(str.match(/(\d+)hr/)?.[1] || '0');
+                        const mins = parseInt(str.match(/(\d+)min/)?.[1] || '0');
+                        return (hrs * 60) + mins;
+                    };
+                    valA = parseTime(valA);
+                    valB = parseTime(valB);
+                }
+
+                // Logic hardening: Handle nulls/undefined for all types
+                if (valA === null || valA === undefined) valA = sort.column === 'asset_count' ? 1 : '';
+                if (valB === null || valB === undefined) valB = sort.column === 'asset_count' ? 1 : '';
 
                 if (sort.direction === 'asc') {
                     return valA > valB ? 1 : -1;
@@ -128,24 +198,70 @@ export const useTasks = () => {
             search: '',
             startDate: '',
             endDate: '',
-            preset: 'all'
+            preset: 'all',
+            projectId: '',
+            showOnlyMine: true
         });
         setReferenceDate(new Date());
+    };
+
+    const startTimer = async (taskId: string) => {
+        const now = new Date().toISOString();
+        const { error } = await supabase
+            .from('tasks')
+            .update({ timer_start: now, status: 'In Progress' })
+            .eq('id', taskId);
+
+        if (!error) loadData();
+        else setError(error.message);
+    };
+
+    const stopTimer = async (taskId: string) => {
+        const task = tasks.find(t => t.id === taskId);
+        if (!task || !task.timer_start) return;
+
+        const startTime = new Date(task.timer_start).getTime();
+        const endTime = new Date().getTime();
+        const elapsedSeconds = Math.floor((endTime - startTime) / 1000);
+        const newTotalSeconds = (task.total_seconds || 0) + elapsedSeconds;
+
+        const { error } = await supabase
+            .from('tasks')
+            .update({
+                timer_start: null,
+                total_seconds: newTotalSeconds,
+                time_taken: formatSeconds(newTotalSeconds)
+            })
+            .eq('id', taskId);
+
+        if (!error) loadData();
+        else setError(error.message);
+    };
+
+    const formatSeconds = (seconds: number) => {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        return `${h}hr ${m}min`;
     };
 
     return {
         tasks: sortedTasks,
         allTasks: tasks,
+        projects: filteredProjects,
+        allProjects: projects,
+        projectMembers,
         loading,
         error,
         filters,
         setFilters,
         sort,
         setSort,
-        refresh: loadTasks,
+        refresh: loadData,
         navigateTime,
         activeRange,
         referenceDate,
-        resetFilters
+        resetFilters,
+        startTimer,
+        stopTimer
     };
 };

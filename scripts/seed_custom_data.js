@@ -37,15 +37,15 @@ async function seedCustomData() {
 
     const statuses = ['In Progress', 'Completed', 'On Hold', 'Not Started', 'In Review'];
 
-    console.log(`🚀 Seeding 100 tasks for ${users.length} user names...`);
+    console.log(`🚀 Seeding 400 tasks for ${users.length} user names...`);
     const tasks = [];
 
-    // Date Range: 1 Jan 2026 to 16 Feb 2026
+    // Date Range: 1 Jan 2026 to today (16 Feb 2026)
     const start = new Date('2026-01-01');
     const end = new Date('2026-02-16');
     const rangeMs = end.getTime() - start.getTime();
 
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 400; i++) {
         // Equal distribution logic (round robin)
         const user = users[i % users.length];
         const client = clients[i % clients.length];

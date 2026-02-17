@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { Pencil, Trash2, Search, Filter, ArrowUpDown, MoreHorizontal, ChevronLeft, ChevronRight, Calendar, X } from 'lucide-react';
+import { Pencil, Trash2, Search, Filter, ArrowUpDown, MoreHorizontal, ChevronLeft, ChevronRight, Calendar, X, Clock } from 'lucide-react';
 import { Task, TimePreset } from '@/hooks/useTasks';
 import { statusConfig } from '@/config/status';
 import { useAuth } from '@/context/AuthContext';
 import { format } from 'date-fns';
+import { TaskTimer } from './TaskTimer';
 
 interface TaskTableProps {
     tasks: Task[];
@@ -14,12 +15,14 @@ interface TaskTableProps {
     setFilters: (filters: any) => void;
     sort: any;
     setSort: (sort: any) => void;
-    onEdit: (task: Task) => void;
     onDelete: (id: string) => void;
     navigateTime: (direction: 'prev' | 'next') => void;
     activeRange: { start: Date; end: Date } | null;
     referenceDate: Date;
     onReset: () => void;
+    onStartTimer: (id: string) => void;
+    onStopTimer: (id: string, calculatedSeconds: number) => void;
+    onTaskClick?: (task: Task) => void;
 }
 
 export const TaskTable: React.FC<TaskTableProps> = ({
@@ -29,17 +32,26 @@ export const TaskTable: React.FC<TaskTableProps> = ({
     setFilters,
     sort,
     setSort,
-    onEdit,
     onDelete,
     navigateTime,
     activeRange,
     referenceDate,
-    onReset
+    onReset,
+    onStartTimer,
+    onStopTimer,
+    onTaskClick
 }) => {
     const { user } = useAuth();
 
     // Unique values for dropdowns
-    const uniqueUsers = useMemo(() => Array.from(new Set(tasks.map(t => t.user_name))).sort(), [tasks]);
+    const uniqueUsers = useMemo(() => {
+        const users = new Set<string>();
+        tasks.forEach(t => {
+            if (t.user_name) users.add(t.user_name);
+            if (t.assigned_to_name) users.add(t.assigned_to_name);
+        });
+        return Array.from(users).sort();
+    }, [tasks]);
     const uniqueClients = useMemo(() => Array.from(new Set(tasks.map(t => t.client_name))).sort(), [tasks]);
     const uniqueAssets = useMemo(() => Array.from(new Set(tasks.map(t => t.asset_type))).filter(Boolean).sort(), [tasks]);
 
@@ -182,19 +194,22 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                     <table className="w-full text-left table-fixed">
                         <thead className="bg-gray-50/50">
                             <tr>
-                                <th onClick={() => handleSort('user_name')} className="w-[12%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
-                                    <div className="flex items-center gap-1">User <ArrowUpDown className={`w-3 h-3 ${sort.column === 'user_name' ? 'opacity-100' : 'opacity-30'}`} /></div>
+                                <th onClick={() => handleSort('assigned_to_name')} className="w-[12%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
+                                    <div className="flex items-center gap-1 text-blue-600">Assigned To <ArrowUpDown className={`w-3 h-3 ${sort.column === 'assigned_to_name' ? 'opacity-100' : 'opacity-30'}`} /></div>
                                 </th>
-                                <th onClick={() => handleSort('client_name')} className="w-[12%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
+                                <th onClick={() => handleSort('user_name')} className="w-[10%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
+                                    <div className="flex items-center gap-1">Assigned By <ArrowUpDown className={`w-3 h-3 ${sort.column === 'user_name' ? 'opacity-100' : 'opacity-30'}`} /></div>
+                                </th>
+                                <th onClick={() => handleSort('client_name')} className="w-[10%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
                                     <div className="flex items-center gap-1">Client <ArrowUpDown className={`w-3 h-3 ${sort.column === 'client_name' ? 'opacity-100' : 'opacity-30'}`} /></div>
                                 </th>
-                                <th onClick={() => handleSort('asset_type')} className="w-[12%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
+                                <th onClick={() => handleSort('asset_type')} className="w-[10%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
                                     <div className="flex items-center gap-1">Type <ArrowUpDown className={`w-3 h-3 ${sort.column === 'asset_type' ? 'opacity-100' : 'opacity-30'}`} /></div>
                                 </th>
-                                <th onClick={() => handleSort('task_name')} className="w-[28%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
+                                <th onClick={() => handleSort('task_name')} className="w-[16%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
                                     <div className="flex items-center gap-1">Task Name <ArrowUpDown className={`w-3 h-3 ${sort.column === 'task_name' ? 'opacity-100' : 'opacity-30'}`} /></div>
                                 </th>
-                                <th onClick={() => handleSort('asset_count')} className="w-[8%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-center">
+                                <th onClick={() => handleSort('asset_count')} className="w-[6%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors text-center">
                                     <div className="flex items-center justify-center gap-1">Count <ArrowUpDown className={`w-3 h-3 ${sort.column === 'asset_count' ? 'opacity-100' : 'opacity-30'}`} /></div>
                                 </th>
                                 <th onClick={() => handleSort('start_date')} className="w-[10%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
@@ -203,10 +218,10 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                                 <th onClick={() => handleSort('status')} className="w-[10%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
                                     <div className="flex items-center gap-1">Status <ArrowUpDown className={`w-3 h-3 ${sort.column === 'status' ? 'opacity-100' : 'opacity-30'}`} /></div>
                                 </th>
-                                <th onClick={() => handleSort('time_taken')} className="w-[8%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
+                                <th onClick={() => handleSort('time_taken')} className="w-[12%] px-4 py-4 text-[11px] font-bold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-blue-600 transition-colors">
                                     <div className="flex items-center gap-1">Time <ArrowUpDown className={`w-3 h-3 ${sort.column === 'time_taken' ? 'opacity-100' : 'opacity-30'}`} /></div>
                                 </th>
-                                <th className="w-[40px] px-2 py-4"></th>
+                                <th className="w-[4%] px-2 py-4"></th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
@@ -226,13 +241,25 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                                 </tr>
                             ) : (
                                 tasks.map((task) => (
-                                    <tr key={task.id} className="hover:bg-gray-50/50 transition-colors group">
+                                    <tr
+                                        key={task.id}
+                                        onClick={() => onTaskClick?.(task)}
+                                        className="hover:bg-gray-50/50 transition-colors group border-l-4 border-l-transparent hover:border-l-blue-500 cursor-pointer"
+                                    >
                                         <td className="px-4 py-4 truncate">
                                             <div className="flex items-center gap-2 overflow-hidden">
-                                                <div className="shrink-0 w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-[10px]">
-                                                    {task.user_name?.substring(0, 2).toUpperCase() || 'SYS'}
+                                                <div className="shrink-0 w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[10px]">
+                                                    {task.assigned_to_name?.substring(0, 2).toUpperCase() || '??'}
                                                 </div>
-                                                <div className="text-sm font-medium text-gray-900 truncate" title={task.user_name}>{task.user_name}</div>
+                                                <div className="text-sm font-bold text-blue-700 truncate" title={task.assigned_to_name || 'Unassigned'}>{task.assigned_to_name || 'Unassigned'}</div>
+                                            </div>
+                                        </td>
+                                        <td className="px-4 py-4 truncate">
+                                            <div className="flex items-center gap-2 overflow-hidden grayscale opacity-70 group-hover:grayscale-0 group-hover:opacity-100 transition-all">
+                                                <div className="shrink-0 w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-[9px]">
+                                                    {task.user_name?.substring(0, 2).toUpperCase() || '??'}
+                                                </div>
+                                                <div className="text-xs font-medium text-gray-500 truncate" title={task.user_name}>{task.user_name}</div>
                                             </div>
                                         </td>
                                         <td className="px-4 py-4 truncate text-sm text-gray-900" title={task.client_name}>{task.client_name}</td>
@@ -247,19 +274,18 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                                                 {task.status}
                                             </span>
                                         </td>
-                                        <td className="px-4 py-4 truncate text-[11px] text-gray-600 font-mono font-medium">{task.time_taken}</td>
+                                        <td className="px-4 py-4">
+                                            <TaskTimer
+                                                totalSeconds={task.total_seconds}
+                                                timerStart={task.timer_start}
+                                                onStart={() => onStartTimer(task.id)}
+                                                onStopWithConfirm={(calculatedSeconds) => onStopTimer(task.id, calculatedSeconds)}
+                                                readonly={user?.id !== task.assigned_to}
+                                            />
+                                        </td>
                                         <td className="px-2 py-4 text-right">
                                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                {user?.id === task.user_id && (
-                                                    <>
-                                                        <button onClick={() => onEdit(task)} className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
-                                                            <Pencil className="w-3.5 h-3.5" />
-                                                        </button>
-                                                        <button onClick={() => onDelete(task.id)} className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
-                                                            <Trash2 className="w-3.5 h-3.5" />
-                                                        </button>
-                                                    </>
-                                                )}
+                                                {/* Actions removed as per user request */}
                                             </div>
                                         </td>
                                     </tr>

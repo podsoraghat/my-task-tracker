@@ -6,15 +6,21 @@ import { AuthOverlay } from "@/components/AuthOverlay";
 import { Navbar } from "@/components/Navbar";
 import { TaskTable } from "@/components/TaskTable";
 import { TaskModal } from "@/components/TaskModal";
+import { ProjectCard } from "@/components/ProjectCard";
+import { ProjectModal } from "@/components/ProjectModal";
 import { ManagerModal } from "@/components/ManagerModal";
-import { useTasks, Task } from "@/hooks/useTasks";
-import { Loader2, Plus, Users, Tag } from "lucide-react";
+import { useTasks, Task, Project } from "@/hooks/useTasks";
+import { Loader2, Plus, Users, Tag, LayoutGrid } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { TimeConfirmModal } from "@/components/TimeConfirmModal";
+import { TaskDetailView } from "@/components/TaskDetailView";
 
 export default function Home() {
   const { user, loading: authLoading } = useAuth();
   const {
     tasks,
+    projects,
+    projectMembers,
     loading: tasksLoading,
     filters,
     setFilters,
@@ -24,9 +30,12 @@ export default function Home() {
     navigateTime,
     activeRange,
     referenceDate,
-    resetFilters
+    resetFilters,
+    startTimer,
+    stopTimer
   } = useTasks();
 
+  const [activeTab, setActiveTab] = useState<'tasks' | 'projects'>('tasks');
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
 
@@ -35,6 +44,21 @@ export default function Home() {
     table: 'clients',
     isOpen: false
   });
+
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<any>(null);
+
+  // Timer confirmation modal state
+  const [timeConfirmModal, setTimeConfirmModal] = useState<{
+    isOpen: boolean;
+    taskId: string;
+    calculatedSeconds: number;
+    existingSeconds: number;
+  }>({ isOpen: false, taskId: '', calculatedSeconds: 0, existingSeconds: 0 });
+
+  // Task detail view state
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isDetailViewOpen, setIsDetailViewOpen] = useState(false);
 
   if (authLoading) {
     return (
@@ -55,14 +79,87 @@ export default function Home() {
     else alert(error.message);
   };
 
-  const openEditModal = (task: Task) => {
-    setEditingTask(task);
-    setIsTaskModalOpen(true);
+
+  const handleDeleteProject = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this project? Tasks linked to this project will become "General Tasks".')) return;
+    const { error } = await supabase.from('projects').delete().eq('id', id);
+    if (!error) refresh();
+    else alert(error.message);
   };
+
 
   const openNewTaskModal = () => {
     setEditingTask(null);
     setIsTaskModalOpen(true);
+  };
+
+  const openNewProjectModal = () => {
+    setEditingProject(null);
+    setIsProjectModalOpen(true);
+  };
+
+  const handleStopTimerWithConfirm = (taskId: string, calculatedSeconds: number) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    setTimeConfirmModal({
+      isOpen: true,
+      taskId,
+      calculatedSeconds,
+      existingSeconds: task.total_seconds || 0
+    });
+  };
+
+  const confirmTimerStop = async (adjustedSeconds: number) => {
+    const newTotalSeconds = timeConfirmModal.existingSeconds + adjustedSeconds;
+    const task = tasks.find(t => t.id === timeConfirmModal.taskId);
+    if (!task) return;
+
+    const formatSeconds = (seconds: number) => {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      return `${h}hr ${m}min`;
+    };
+
+    // Calculate session times
+    const sessionEnd = new Date().toISOString();
+    const sessionStart = task.timer_start;
+
+    // Update task
+    const { error: taskError } = await supabase
+      .from('tasks')
+      .update({
+        timer_start: null,
+        total_seconds: newTotalSeconds,
+        time_taken: formatSeconds(newTotalSeconds)
+      })
+      .eq('id', timeConfirmModal.taskId);
+
+    // Create time log entry
+    if (!taskError && user) {
+      await supabase
+        .from('time_logs')
+        .insert({
+          task_id: timeConfirmModal.taskId,
+          user_id: user.id,
+          user_name: user.email?.split('@')[0] || 'Unknown',
+          seconds_logged: adjustedSeconds,
+          session_start: sessionStart,
+          session_end: sessionEnd
+        });
+    }
+
+    if (!taskError) {
+      refresh();
+      setTimeConfirmModal({ isOpen: false, taskId: '', calculatedSeconds: 0, existingSeconds: 0 });
+    } else {
+      alert(taskError.message);
+    }
+  };
+
+  const handleTaskClick = (task: Task) => {
+    setSelectedTask(task);
+    setIsDetailViewOpen(true);
   };
 
   return (
@@ -72,58 +169,136 @@ export default function Home() {
       <main className="flex-1 p-6 scroll-smooth">
         <div className="max-w-7xl mx-auto space-y-6">
 
-          {/* Sticky Header Container */}
+          {/* Navigation & Action Bar */}
           <div className="sticky top-16 z-30 bg-gray-50/80 backdrop-blur-md py-2 -mx-2 px-2">
-            {/* Action Bar */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900 tracking-tight">Dashboard</h2>
-                <p className="text-xs text-gray-500 font-medium mt-0.5">Manage your daily tasks and workflow</p>
+            <div className="flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+
+              {/* Tab Switcher */}
+              <div className="flex p-1 bg-gray-100 rounded-lg w-full lg:w-auto">
+                <button
+                  onClick={() => setActiveTab('tasks')}
+                  className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'tasks'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  Tasks
+                </button>
+                <button
+                  onClick={() => setActiveTab('projects')}
+                  className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'projects'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  Projects
+                </button>
               </div>
 
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button
-                  onClick={() => setManagerConfig({ title: 'Client', table: 'clients', isOpen: true })}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-100 transition-all border border-gray-100"
-                >
-                  <Users className="w-4 h-4" />
-                  <span className="hidden md:inline">Clients</span>
-                </button>
+              {/* View Toggle & Actions */}
+              <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+                {/* Personal/Team Toggle */}
+                <div className="flex p-1 bg-gray-50 rounded-lg border border-gray-100 mr-2">
+                  <button
+                    onClick={() => setFilters({ ...filters, showOnlyMine: true })}
+                    className={`px-3 py-1.5 rounded-md text-[10px] uppercase tracking-wider font-black transition-all ${filters.showOnlyMine ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400'
+                      }`}
+                  >
+                    My {activeTab === 'tasks' ? 'Tasks' : 'Projects'}
+                  </button>
+                  <button
+                    onClick={() => setFilters({ ...filters, showOnlyMine: false })}
+                    className={`px-3 py-1.5 rounded-md text-[10px] uppercase tracking-wider font-black transition-all ${!filters.showOnlyMine ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400'
+                      }`}
+                  >
+                    Team
+                  </button>
+                </div>
 
-                <button
-                  onClick={() => setManagerConfig({ title: 'Asset', table: 'assets', isOpen: true })}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-100 transition-all border border-gray-100"
-                >
-                  <Tag className="w-4 h-4" />
-                  <span className="hidden md:inline">Assets</span>
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setManagerConfig({ title: 'Client', table: 'clients', isOpen: true })}
+                    className="flex-none flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-100 transition-all border border-gray-100"
+                  >
+                    <Users className="w-4 h-4" />
+                    <span className="hidden md:inline">Clients</span>
+                  </button>
 
-                <button
-                  onClick={openNewTaskModal}
-                  className="flex-[2] sm:flex-none flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                  New Task
-                </button>
+                  <button
+                    onClick={() => setManagerConfig({ title: 'Asset', table: 'assets', isOpen: true })}
+                    className="flex-none flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-100 transition-all border border-gray-100"
+                  >
+                    <Tag className="w-4 h-4" />
+                    <span className="hidden md:inline">Assets</span>
+                  </button>
+
+                  <button
+                    onClick={activeTab === 'tasks' ? openNewTaskModal : () => setIsProjectModalOpen(true)}
+                    className="flex-none flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all"
+                  >
+                    <Plus className="w-4 h-4" />
+                    {activeTab === 'tasks' ? 'Assign Task' : 'New Project'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Table */}
-          <TaskTable
-            tasks={tasks}
-            loading={tasksLoading}
-            filters={filters}
-            setFilters={setFilters}
-            sort={sort}
-            setSort={setSort}
-            onEdit={openEditModal}
-            onDelete={handleDeleteTask}
-            navigateTime={navigateTime}
-            activeRange={activeRange}
-            referenceDate={referenceDate}
-            onReset={resetFilters}
-          />
+          {/* Conditional Content */}
+          {activeTab === 'tasks' ? (
+            <TaskTable
+              tasks={filters.showOnlyMine ? tasks.filter(t => t.assigned_to === user.id) : tasks}
+              loading={tasksLoading}
+              filters={filters}
+              setFilters={setFilters}
+              sort={sort}
+              setSort={setSort}
+              onDelete={handleDeleteTask}
+              navigateTime={navigateTime}
+              activeRange={activeRange}
+              referenceDate={referenceDate}
+              onReset={resetFilters}
+              onStartTimer={startTimer}
+              onStopTimer={handleStopTimerWithConfirm}
+              onTaskClick={handleTaskClick}
+            />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {(filters.showOnlyMine
+                ? projects.filter(p => projectMembers.some(m => m.project_id === p.id && m.user_id === user.id))
+                : projects
+              ).map(project => (
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  tasks={tasks}
+                  members={projectMembers.filter(m => m.project_id === project.id)}
+                  onDelete={(e) => {
+                    e.stopPropagation();
+                    handleDeleteProject(project.id);
+                  }}
+                  onClick={() => {
+                    setFilters({ ...filters, projectId: project.id, showOnlyMine: false });
+                    setActiveTab('tasks');
+                  }}
+                />
+              ))}
+
+              {/* Add Project Card */}
+              <div
+                onClick={openNewProjectModal}
+                className="group bg-white/50 rounded-2xl border-2 border-dashed border-gray-200 p-8 flex flex-col items-center justify-center text-center space-y-4 hover:border-blue-300 hover:bg-white hover:shadow-xl transition-all cursor-pointer"
+              >
+                <div className="w-12 h-12 bg-gray-100 text-gray-400 rounded-full flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all shadow-sm">
+                  <Plus className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-gray-400 group-hover:text-blue-600 uppercase tracking-widest">New Project</h3>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Scale your vision</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
@@ -135,6 +310,13 @@ export default function Home() {
         editTask={editingTask}
       />
 
+      <ProjectModal
+        isOpen={isProjectModalOpen}
+        onClose={() => setIsProjectModalOpen(false)}
+        onSuccess={refresh}
+        editProject={editingProject}
+      />
+
       <ManagerModal
         title={managerConfig.title}
         table={managerConfig.table}
@@ -143,8 +325,27 @@ export default function Home() {
         onUpdate={refresh}
       />
 
+      <TimeConfirmModal
+        isOpen={timeConfirmModal.isOpen}
+        calculatedSeconds={timeConfirmModal.calculatedSeconds}
+        onConfirm={confirmTimerStop}
+        onCancel={() => setTimeConfirmModal({ isOpen: false, taskId: '', calculatedSeconds: 0, existingSeconds: 0 })}
+      />
+
+      <TaskDetailView
+        task={selectedTask}
+        isOpen={isDetailViewOpen}
+        onClose={() => setIsDetailViewOpen(false)}
+        onDelete={() => {
+          if (selectedTask) {
+            handleDeleteTask(selectedTask.id);
+          }
+        }}
+        onUpdate={refresh}
+      />
+
       <footer className="py-8 text-center border-t border-gray-100 bg-white">
-        <p className="text-[10px] font-bold text-gray-300 uppercase tracking-[0.2em]">Task Tracker v2.0 • Powered by Supabase & Next.js</p>
+        <p className="text-[10px] font-bold text-gray-300 uppercase tracking-[0.2em]">Zive Dashboard v2.5 • Projects & Tasks Sync</p>
       </footer>
     </div>
   );

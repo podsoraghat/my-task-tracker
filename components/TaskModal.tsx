@@ -19,6 +19,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
     const [loading, setLoading] = useState(false);
     const [clients, setClients] = useState<any[]>([]);
     const [assets, setAssets] = useState<any[]>([]);
+    const [profiles, setProfiles] = useState<any[]>([]);
+    const [projects, setProjects] = useState<any[]>([]);
 
     const [formData, setFormData] = useState({
         client_name: '',
@@ -28,17 +30,23 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
         status: 'In Progress',
         hours: '0',
         minutes: '0',
-        asset_count: 1
+        asset_count: 1,
+        assigned_to: '',
+        project_id: ''
     });
 
     useEffect(() => {
         const fetchData = async () => {
-            const [{ data: cData }, { data: aData }] = await Promise.all([
+            const [{ data: cData }, { data: aData }, { data: pData }, { data: prData }] = await Promise.all([
                 supabase.from('clients').select('name').order('name'),
-                supabase.from('assets').select('name').order('name')
+                supabase.from('assets').select('name').order('name'),
+                supabase.from('profiles').select('id, full_name').order('full_name'),
+                supabase.from('projects').select('id, name, client_name').order('name')
             ]);
             setClients(cData || []);
             setAssets(aData || []);
+            setProfiles(pData || []);
+            setProjects(prData || []);
         };
         if (isOpen) fetchData();
     }, [isOpen]);
@@ -54,7 +62,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                 status: editTask.status,
                 hours: timeParts ? timeParts[1] : '0',
                 minutes: timeParts ? timeParts[2] : '0',
-                asset_count: editTask.asset_count || 1
+                asset_count: editTask.asset_count || 1,
+                assigned_to: editTask.assigned_to || '',
+                project_id: editTask.project_id || ''
             });
         } else {
             setFormData({
@@ -65,10 +75,12 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                 status: 'In Progress',
                 hours: '0',
                 minutes: '0',
-                asset_count: 1
+                asset_count: 1,
+                assigned_to: user?.id || '', // Default to self
+                project_id: ''
             });
         }
-    }, [editTask, isOpen]);
+    }, [editTask, isOpen, user?.id]);
 
     const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +90,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
         setError(null);
 
         const time = `${formData.hours}hr ${formData.minutes}min`;
+        const assigneeProfile = profiles.find(p => p.id === formData.assigned_to);
+        const assigneeName = assigneeProfile ? assigneeProfile.full_name : (user?.email?.split('@')[0] || 'User');
+
         const payload: any = {
             client_name: formData.client_name,
             asset_type: formData.asset_type,
@@ -86,11 +101,14 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
             status: formData.status,
             time_taken: time,
             asset_count: parseInt(formData.asset_count.toString()) || 1,
+            assigned_to: formData.assigned_to,
+            assigned_to_name: assigneeName,
+            project_id: formData.project_id || null
         };
 
         if (!editTask) {
-            payload.user_id = user?.id;
-            payload.user_name = user?.email?.split('@')[0] || 'User';
+            payload.user_id = user?.id; // Creator
+            payload.user_name = user?.email?.split('@')[0] || 'User'; // Creator
         }
 
         const query = editTask
@@ -114,7 +132,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
         <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                    <h2 className="text-lg font-bold text-gray-800">{editTask ? 'Edit Task' : 'Add New Task'}</h2>
+                    <h2 className="text-lg font-bold text-gray-800">{editTask ? 'Edit Task Details' : 'Assign New Task'}</h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-full hover:bg-gray-100">
                         <X className="w-5 h-5" />
                     </button>
@@ -122,6 +140,35 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
 
                 <form onSubmit={handleSubmit} className="p-6 space-y-5">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        {/* Project Selection */}
+                        <div className="space-y-1.5 col-span-2">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest text-blue-600">Link to Project</label>
+                            <div className="relative">
+                                <select
+                                    value={formData.project_id}
+                                    onChange={async (e) => {
+                                        const projId = e.target.value;
+                                        const proj = projects.find(p => p.id === projId);
+                                        const updates: any = { project_id: projId };
+
+                                        if (proj) {
+                                            updates.client_name = proj.client_name;
+                                            // Fetch project members and auto-assign one (optional)
+                                            const { data: members } = await supabase.from('project_members').select('user_id').eq('project_id', projId);
+                                            if (members && members.length > 0) {
+                                                updates.assigned_to = members[0].user_id;
+                                            }
+                                        }
+                                        setFormData({ ...formData, ...updates });
+                                    }}
+                                    className="w-full px-4 py-2.5 bg-blue-50/30 border border-blue-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer font-bold"
+                                >
+                                    <option value="">No Project (General Task)</option>
+                                    {projects.map(p => <option key={p.id} value={p.id}>{p.name} ({p.client_name})</option>)}
+                                </select>
+                                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-400 pointer-events-none" />
+                            </div>
+                        </div>
                         <div className="space-y-1.5 col-span-2">
                             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Client Name</label>
                             <div className="relative">
@@ -135,6 +182,22 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                                     {clients.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                                 </select>
                                 <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                            </div>
+                        </div>
+
+                        <div className="space-y-1.5 col-span-2">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest text-blue-600">Assign To</label>
+                            <div className="relative">
+                                <select
+                                    required
+                                    value={formData.assigned_to}
+                                    onChange={(e) => setFormData({ ...formData, assigned_to: e.target.value })}
+                                    className="w-full px-4 py-2.5 bg-blue-50/50 border border-blue-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer font-bold text-blue-700"
+                                >
+                                    <option value="">Select User</option>
+                                    {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                                </select>
+                                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-400 pointer-events-none" />
                             </div>
                         </div>
 
@@ -206,7 +269,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                         </div>
 
                         <div className="space-y-1.5 col-span-2">
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Time Taken</label>
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Add Time Manually (Optional)</label>
                             <div className="flex gap-4">
                                 <div className="flex-1 relative">
                                     <input
@@ -245,7 +308,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                             Cancel
                         </button>
                         <button type="submit" disabled={loading} className="flex-[2] py-3 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all flex items-center justify-center gap-2">
-                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : editTask ? 'Update Task' : 'Create Task'}
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : editTask ? 'Update Assignment' : 'Assign Task'}
                         </button>
                     </div>
                 </form>
