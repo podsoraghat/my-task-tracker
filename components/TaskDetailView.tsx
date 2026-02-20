@@ -1,15 +1,19 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Clock, User, Calendar, Edit2, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Task } from '@/hooks/useTasks';
 import { supabase } from '@/lib/supabase';
 import { format, parseISO } from 'date-fns';
 import { statusConfig, statusOptions } from '@/config/status';
 import { InlineEdit } from './InlineEdit';
+import { MultiSelect } from './MultiSelect';
+import { useAuth } from '@/context/AuthContext';
+import { Save } from 'lucide-react';
 
 interface TimeLog {
     id: string;
+    user_id: string;
     user_name: string;
     seconds_logged: number;
     logged_at: string;
@@ -29,6 +33,12 @@ export const TaskDetailView: React.FC<TaskDetailViewProps> = ({ task, isOpen, on
     const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
     const [projectName, setProjectName] = useState<string>('');
     const [loading, setLoading] = useState(false);
+    const { user } = useAuth();
+
+    // Editing State
+    const [editingLogId, setEditingLogId] = useState<string | null>(null);
+    const [editHours, setEditHours] = useState('0');
+    const [editMinutes, setEditMinutes] = useState('0');
 
     // Options for dropdowns
     const [clients, setClients] = useState<any[]>([]);
@@ -38,6 +48,7 @@ export const TaskDetailView: React.FC<TaskDetailViewProps> = ({ task, isOpen, on
 
     useEffect(() => {
         const fetchOptions = async () => {
+            // ... existing fetch logic
             const [{ data: cData }, { data: aData }, { data: pData }, { data: prData }] = await Promise.all([
                 supabase.from('clients').select('name').order('name'),
                 supabase.from('assets').select('name').order('name'),
@@ -51,6 +62,25 @@ export const TaskDetailView: React.FC<TaskDetailViewProps> = ({ task, isOpen, on
         };
         if (isOpen) fetchOptions();
     }, [isOpen]);
+
+    // Handle click outside to close
+    const modalRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
+                onClose();
+            }
+        };
+
+        if (isOpen) {
+            // Using 'mousedown' can race with onBlur. 'mouseup' or 'click' is safer for saving data on close.
+            document.addEventListener('mouseup', handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener('mouseup', handleClickOutside);
+        };
+    }, [isOpen, onClose]);
 
     useEffect(() => {
         if (isOpen && task) {
@@ -102,6 +132,35 @@ export const TaskDetailView: React.FC<TaskDetailViewProps> = ({ task, isOpen, on
     const handleUpdate = async (field: string, value: any) => {
         if (!task) return;
 
+        // Special handling for assignments (many-to-many)
+        if (field === 'assignees') {
+            const newAssigneeIds: string[] = value;
+
+            // 1. Delete existing assignments
+            await supabase.from('task_assignments').delete().eq('task_id', task.id);
+
+            // 2. Insert new assignments
+            if (newAssigneeIds.length > 0) {
+                const assignments = newAssigneeIds.map(userId => ({
+                    task_id: task.id,
+                    user_id: userId
+                }));
+                await supabase.from('task_assignments').insert(assignments);
+            }
+
+            // Update legacy fields for compatibility
+            const primaryAssigneeId = newAssigneeIds.length > 0 ? newAssigneeIds[0] : null;
+            const primaryProfile = profiles.find(p => p.id === primaryAssigneeId);
+
+            await supabase.from('tasks').update({
+                assigned_to: primaryAssigneeId,
+                assigned_to_name: primaryProfile?.full_name || null
+            }).eq('id', task.id);
+
+            onUpdate();
+            return;
+        }
+
         const updates: any = { [field]: value };
 
         // Special handling for project change vs null
@@ -118,12 +177,6 @@ export const TaskDetailView: React.FC<TaskDetailViewProps> = ({ task, isOpen, on
             }
         }
 
-        // Special handling for assignee name update
-        if (field === 'assigned_to') {
-            const profile = profiles.find(p => p.id === value);
-            if (profile) updates.assigned_to_name = profile.full_name;
-        }
-
         const { error } = await supabase
             .from('tasks')
             .update(updates)
@@ -136,6 +189,80 @@ export const TaskDetailView: React.FC<TaskDetailViewProps> = ({ task, isOpen, on
         } else {
             alert('Failed to update task: ' + error.message);
         }
+    };
+
+    const handleEditLog = (log: TimeLog) => {
+        setEditingLogId(log.id);
+        const h = Math.floor(log.seconds_logged / 3600);
+        const m = Math.floor((log.seconds_logged % 3600) / 60);
+        setEditHours(h.toString());
+        setEditMinutes(m.toString());
+    };
+
+    const handleSaveLog = async () => {
+        if (!editingLogId || !task) return;
+
+        const h = parseInt(editHours) || 0;
+        const m = parseInt(editMinutes) || 0;
+
+        if (h < 0 || m < 0) {
+            alert("Time cannot be negative");
+            return;
+        }
+
+        let totalSeconds = h * 3600 + m * 60;
+
+        // 1. Update the time log
+        const { error: updateError } = await supabase
+            .from('time_logs')
+            .update({ seconds_logged: totalSeconds })
+            .eq('id', editingLogId);
+
+        if (updateError) {
+            alert('Failed to update log: ' + updateError.message);
+            return;
+        }
+
+        // 2. Recalculate total time for the task
+        recalculateTaskTotals();
+    };
+
+    const handleDeleteLog = async (logId: string) => {
+        if (!confirm('Are you sure you want to delete this time entry?')) return;
+
+        const { error } = await supabase.from('time_logs').delete().eq('id', logId);
+
+        if (error) {
+            alert('Failed to delete log: ' + error.message);
+        } else {
+            recalculateTaskTotals();
+        }
+    };
+
+    const recalculateTaskTotals = async () => {
+        if (!task) return;
+
+        // Fetch all logs for this task
+        const { data: logs } = await supabase
+            .from('time_logs')
+            .select('seconds_logged')
+            .eq('task_id', task.id);
+
+        const newTotalSeconds = (logs || []).reduce((sum, log) => sum + log.seconds_logged, 0);
+        const newTimeTaken = formatSeconds(newTotalSeconds);
+
+        // Update task
+        await supabase
+            .from('tasks')
+            .update({
+                total_seconds: newTotalSeconds,
+                time_taken: newTimeTaken
+            })
+            .eq('id', task.id);
+
+        setEditingLogId(null);
+        loadTimeLogs();
+        onUpdate();
     };
 
     const formatDateTime = (dateString: string) => {
@@ -152,7 +279,7 @@ export const TaskDetailView: React.FC<TaskDetailViewProps> = ({ task, isOpen, on
 
     return (
         <div className="fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 flex flex-col">
+            <div ref={modalRef} className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 flex flex-col">
                 {/* Header */}
                 <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gradient-to-r from-blue-50 to-purple-50">
                     <div className="flex items-center gap-3">
@@ -236,18 +363,14 @@ export const TaskDetailView: React.FC<TaskDetailViewProps> = ({ task, isOpen, on
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Assigned To</label>
-                                <InlineEdit
-                                    type="select"
-                                    value={task.assigned_to || ''}
-                                    displayValue={task.assigned_to_name || 'Unassigned'}
-                                    options={[
-                                        { label: 'Unassigned', value: '' },
-                                        ...profiles.map(p => ({ label: p.full_name, value: p.id }))
-                                    ]}
-                                    onSave={(val) => handleUpdate('assigned_to', val)}
-                                    className="mt-1"
-                                    inputClassName="text-sm font-bold text-blue-600"
-                                />
+                                <div className="mt-1">
+                                    <MultiSelect
+                                        options={profiles.map(p => ({ label: p.full_name, value: p.id }))}
+                                        selectedValues={task.assignees?.map(a => a.user_id) || []}
+                                        onChange={(vals) => handleUpdate('assignees', vals)}
+                                        placeholder="Unassigned"
+                                    />
+                                </div>
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Assigned By</label>
@@ -317,7 +440,7 @@ export const TaskDetailView: React.FC<TaskDetailViewProps> = ({ task, isOpen, on
                         ) : (
                             <div className="space-y-3">
                                 {timeLogs.map((log) => (
-                                    <div key={log.id} className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all">
+                                    <div key={log.id} className="group bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all">
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
@@ -332,11 +455,73 @@ export const TaskDetailView: React.FC<TaskDetailViewProps> = ({ task, isOpen, on
                                                 </div>
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-lg font-black text-blue-600">{formatSeconds(log.seconds_logged)}</p>
-                                                {log.session_start && log.session_end && (
-                                                    <p className="text-xs text-gray-400 font-medium">
-                                                        {format(parseISO(log.session_start), 'h:mm a')} → {format(parseISO(log.session_end), 'h:mm a')}
-                                                    </p>
+                                                {editingLogId === log.id ? (
+                                                    <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-lg border border-blue-200">
+                                                        <div className="flex items-center gap-1">
+                                                            <input
+                                                                type="number"
+                                                                value={editHours}
+                                                                onChange={(e) => setEditHours(e.target.value)}
+                                                                className={`w-12 px-1 py-1 text-right font-bold border rounded focus:ring-2 outline-none ${(parseInt(editHours) < 0)
+                                                                    ? 'border-red-500 focus:ring-red-200'
+                                                                    : 'focus:ring-blue-500'
+                                                                    }`}
+                                                            />
+                                                            <span className="text-xs font-bold text-gray-500">hr</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <input
+                                                                type="number"
+                                                                value={editMinutes}
+                                                                onChange={(e) => setEditMinutes(e.target.value)}
+                                                                className={`w-12 px-1 py-1 text-right font-bold border rounded focus:ring-2 outline-none ${(parseInt(editMinutes) < 0)
+                                                                    ? 'border-red-500 focus:ring-red-200'
+                                                                    : 'focus:ring-blue-500'
+                                                                    }`}
+                                                            />
+                                                            <span className="text-xs font-bold text-gray-500">min</span>
+                                                        </div>
+                                                        <button
+                                                            onClick={handleSaveLog}
+                                                            disabled={(parseInt(editHours) < 0) || (parseInt(editMinutes) < 0)}
+                                                            className={`p-1 text-white rounded transition-colors ${(parseInt(editHours) < 0) || (parseInt(editMinutes) < 0)
+                                                                ? 'bg-gray-300 cursor-not-allowed'
+                                                                : 'bg-blue-600 hover:bg-blue-700'
+                                                                }`}
+                                                            title="Save"
+                                                        >
+                                                            <Save className="w-4 h-4" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setEditingLogId(null)}
+                                                            className="p-1 text-gray-400 hover:text-gray-600"
+                                                            title="Cancel"
+                                                        >
+                                                            <X className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <p className="text-lg font-black text-blue-600">{formatSeconds(log.seconds_logged)}</p>
+                                                        {user?.id === log.user_id && (
+                                                            <div className="flex gap-2 justify-end mt-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                                                <button
+                                                                    onClick={() => handleEditLog(log)}
+                                                                    className="text-gray-400 hover:text-blue-600 transition-colors"
+                                                                    title="Edit Time"
+                                                                >
+                                                                    <Edit2 className="w-3.5 h-3.5" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleDeleteLog(log.id)}
+                                                                    className="text-gray-400 hover:text-red-600 transition-colors"
+                                                                    title="Delete Entry"
+                                                                >
+                                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </>
                                                 )}
                                             </div>
                                         </div>
@@ -348,13 +533,7 @@ export const TaskDetailView: React.FC<TaskDetailViewProps> = ({ task, isOpen, on
                 </div>
 
                 {/* Footer Actions */}
-                <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex gap-3">
-                    <button
-                        onClick={onClose}
-                        className="flex-1 px-4 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-all"
-                    >
-                        Close
-                    </button>
+                <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex gap-3 justify-end">
                     <button
                         onClick={() => {
                             if (confirm('Are you sure you want to delete this task?')) {

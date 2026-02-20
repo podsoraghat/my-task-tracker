@@ -23,6 +23,7 @@ interface TaskTableProps {
     onStartTimer: (id: string) => void;
     onStopTimer: (id: string, calculatedSeconds: number) => void;
     onTaskClick?: (task: Task) => void;
+    activeTimerMap: Record<string, { startTime: string } | null>;
 }
 
 export const TaskTable: React.FC<TaskTableProps> = ({
@@ -39,7 +40,8 @@ export const TaskTable: React.FC<TaskTableProps> = ({
     onReset,
     onStartTimer,
     onStopTimer,
-    onTaskClick
+    onTaskClick,
+    activeTimerMap
 }) => {
     const { user } = useAuth();
 
@@ -49,6 +51,9 @@ export const TaskTable: React.FC<TaskTableProps> = ({
         tasks.forEach(t => {
             if (t.user_name) users.add(t.user_name);
             if (t.assigned_to_name) users.add(t.assigned_to_name);
+            t.assignees?.forEach(a => {
+                if (a.user_name) users.add(a.user_name);
+            });
         });
         return Array.from(users).sort();
     }, [tasks]);
@@ -247,11 +252,34 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                                         className="hover:bg-gray-50/50 transition-colors group border-l-4 border-l-transparent hover:border-l-blue-500 cursor-pointer"
                                     >
                                         <td className="px-4 py-4 truncate">
-                                            <div className="flex items-center gap-2 overflow-hidden">
-                                                <div className="shrink-0 w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[10px]">
-                                                    {task.assigned_to_name?.substring(0, 2).toUpperCase() || '??'}
+                                            <div className="flex items-center -space-x-2 overflow-hidden">
+                                                {task.assignees && task.assignees.length > 0 ? (
+                                                    <>
+                                                        {task.assignees.slice(0, 3).map((assignee) => (
+                                                            <div key={assignee.user_id} className="relative shrink-0 w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-[10px] ring-2 ring-white" title={assignee.user_name}>
+                                                                {assignee.avatar_url ? (
+                                                                    <img src={assignee.avatar_url} alt={assignee.user_name} className="w-full h-full rounded-full object-cover" />
+                                                                ) : (
+                                                                    assignee.user_name?.substring(0, 2).toUpperCase() || '??'
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                        {task.assignees.length > 3 && (
+                                                            <div className="relative shrink-0 w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-bold text-[9px] ring-2 ring-white">
+                                                                +{task.assignees.length - 3}
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <div className="shrink-0 w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-400 font-bold text-[10px]">
+                                                        ?
+                                                    </div>
+                                                )}
+                                                <div className="ml-3 text-sm font-bold text-blue-700 truncate max-w-[100px]" title={task.assignees?.map(a => a.user_name).join(', ') || 'Unassigned'}>
+                                                    {task.assignees && task.assignees.length > 0
+                                                        ? (task.assignees.length === 1 ? task.assignees[0].user_name : `${task.assignees.length} Assignees`)
+                                                        : 'Unassigned'}
                                                 </div>
-                                                <div className="text-sm font-bold text-blue-700 truncate" title={task.assigned_to_name || 'Unassigned'}>{task.assigned_to_name || 'Unassigned'}</div>
                                             </div>
                                         </td>
                                         <td className="px-4 py-4 truncate">
@@ -277,10 +305,10 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                                         <td className="px-4 py-4">
                                             <TaskTimer
                                                 totalSeconds={task.total_seconds}
-                                                timerStart={task.timer_start}
+                                                timerStart={activeTimerMap[task.id]?.startTime || null}
                                                 onStart={() => onStartTimer(task.id)}
                                                 onStopWithConfirm={(calculatedSeconds) => onStopTimer(task.id, calculatedSeconds)}
-                                                readonly={user?.id !== task.assigned_to}
+                                                readonly={!user?.id || (task.assignees && !task.assignees.some(a => a.user_id === user.id))}
                                             />
                                         </td>
                                         <td className="px-2 py-4 text-right">

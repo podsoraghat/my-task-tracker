@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ChevronDown } from 'lucide-react';
 
 interface InlineEditProps {
     value: string | number;
@@ -70,48 +70,88 @@ export const InlineEdit: React.FC<InlineEditProps> = ({
         }
     };
 
-    if (isEditing) {
+    if (type === 'select') {
+        const display = options.find(o => o.value == currentValue)?.label || displayValue || 'Select...';
+
         return (
-            <div className={`relative flex items-center gap-2 ${className}`}>
-                {type === 'select' ? (
-                    <select
-                        ref={inputRef as any}
-                        value={currentValue}
-                        onChange={(e) => setCurrentValue(e.target.value)}
-                        onBlur={handleSave}
-                        disabled={loading}
-                        className={`w-full px-2 py-1 bg-white border border-blue-500 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-200 ${inputClassName}`}
-                    >
-                        {options.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                            </option>
-                        ))}
-                    </select>
-                ) : type === 'textarea' ? (
-                    <textarea
-                        ref={inputRef as any}
-                        value={currentValue}
-                        onChange={(e) => setCurrentValue(e.target.value)}
-                        onBlur={handleSave}
-                        onKeyDown={handleKeyDown}
-                        disabled={loading}
-                        className={`w-full px-2 py-1 bg-white border border-blue-500 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-200 resize-none ${inputClassName}`}
-                        rows={3}
-                    />
-                ) : (
-                    <input
-                        ref={inputRef as any}
-                        type={type}
-                        value={currentValue}
-                        onChange={(e) => setCurrentValue(
-                            type === 'number' ? parseFloat(e.target.value) : e.target.value
-                        )}
-                        onBlur={handleSave}
-                        onKeyDown={handleKeyDown}
-                        disabled={loading}
-                        className={`w-full px-2 py-1 bg-white border border-blue-500 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-200 ${inputClassName}`}
-                    />
+            <div className={`relative group ${className}`}>
+                {/* Visual Fake Label */}
+                <div className={`pointer-events-none relative flex items-center justify-between ${inputClassName}`}>
+                    <span className="truncate mr-2">{display}</span>
+                    <ChevronDown className="w-4 h-4 text-gray-400 opacity-50 flex-shrink-0" />
+                </div>
+
+                {/* Actual Interactive Select (Invisible but Clickable) */}
+                <select
+                    value={currentValue}
+                    onChange={(e) => {
+                        const newValue = e.target.value;
+                        setCurrentValue(newValue);
+                        onSave(newValue);
+                    }}
+                    disabled={loading}
+                    className={`w-full h-full opacity-0 cursor-pointer absolute inset-0 z-10 ${inputClassName}`}
+                    title={label || 'Select option'}
+                >
+                    {options.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                        </option>
+                    ))}
+                </select>
+
+                {loading && (
+                    <div className="absolute right-[-24px] top-1/2 -translate-y-1/2">
+                        <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    if (isEditing) {
+        const isError = type === 'number' && typeof currentValue === 'number' && currentValue < 0;
+
+        return (
+            <div className={`relative ${className}`}>
+                <div className="flex items-center gap-2">
+                    {type === 'textarea' ? (
+                        <textarea
+                            ref={inputRef as any}
+                            value={currentValue}
+                            onChange={(e) => setCurrentValue(e.target.value)}
+                            onBlur={handleSave}
+                            onKeyDown={handleKeyDown}
+                            disabled={loading}
+                            className={`w-full px-2 py-1 bg-white border rounded-lg text-sm outline-none focus:ring-2 resize-none ${inputClassName} ${isError ? 'border-red-500 focus:ring-red-100' : 'border-blue-500 focus:ring-blue-200'
+                                }`}
+                            rows={3}
+                        />
+                    ) : (
+                        <input
+                            ref={inputRef as any}
+                            type={type}
+                            min={type === 'number' ? "0" : undefined}
+                            value={currentValue}
+                            onChange={(e) => setCurrentValue(
+                                type === 'number' ? parseFloat(e.target.value) : e.target.value
+                            )}
+                            onBlur={(e) => {
+                                // Block save if error
+                                if (type === 'number' && parseFloat(e.target.value) < 0) return;
+                                handleSave();
+                            }}
+                            onKeyDown={handleKeyDown}
+                            disabled={loading}
+                            className={`w-full px-2 py-1 bg-white border rounded-lg text-sm outline-none focus:ring-2 ${inputClassName} ${isError ? 'border-red-500 focus:ring-red-100' : 'border-blue-500 focus:ring-blue-200'
+                                }`}
+                        />
+                    )}
+                </div>
+                {isError && (
+                    <p className="absolute top-full left-0 mt-1 text-[10px] font-bold text-red-500 z-10 bg-white px-1 py-0.5 rounded shadow-sm border border-red-100">
+                        Time cannot be negative
+                    </p>
                 )}
 
                 {loading && (

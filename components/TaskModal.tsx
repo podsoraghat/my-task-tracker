@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { statusOptions } from '@/config/status';
 import { Task } from '@/hooks/useTasks';
 import { useAuth } from '@/context/AuthContext';
+import { MultiSelect } from './MultiSelect';
 
 interface TaskModalProps {
     isOpen: boolean;
@@ -31,7 +32,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
         hours: '0',
         minutes: '0',
         asset_count: 1,
-        assigned_to: '',
+        // assigned_to: '', // Deprecated in favor of multi-select
+        assignees: [] as string[],
         project_id: ''
     });
 
@@ -63,7 +65,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                 hours: timeParts ? timeParts[1] : '0',
                 minutes: timeParts ? timeParts[2] : '0',
                 asset_count: editTask.asset_count || 1,
-                assigned_to: editTask.assigned_to || '',
+                assignees: editTask.assignees?.map(a => a.user_id) || (editTask.assigned_to ? [editTask.assigned_to] : []),
                 project_id: editTask.project_id || ''
             });
         } else {
@@ -76,7 +78,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                 hours: '0',
                 minutes: '0',
                 asset_count: 1,
-                assigned_to: user?.id || '', // Default to self
+                assignees: user?.id ? [user.id] : [], // Default to self
                 project_id: ''
             });
         }
@@ -90,8 +92,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
         setError(null);
 
         const time = `${formData.hours}hr ${formData.minutes}min`;
-        const assigneeProfile = profiles.find(p => p.id === formData.assigned_to);
-        const assigneeName = assigneeProfile ? assigneeProfile.full_name : (user?.email?.split('@')[0] || 'User');
+
+        // Determine primary assignee for legacy compatibility (first selected)
+        const primaryAssigneeId = formData.assignees.length > 0 ? formData.assignees[0] : null;
+        const primaryAssigneeProfile = profiles.find(p => p.id === primaryAssigneeId);
+        const primaryAssigneeName = primaryAssigneeProfile ? primaryAssigneeProfile.full_name : null;
 
         const payload: any = {
             client_name: formData.client_name,
@@ -101,8 +106,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
             status: formData.status,
             time_taken: time,
             asset_count: parseInt(formData.asset_count.toString()) || 1,
-            assigned_to: formData.assigned_to,
-            assigned_to_name: assigneeName,
+            assigned_to: primaryAssigneeId, // Legacy support
+            assigned_to_name: primaryAssigneeName, // Legacy support
             project_id: formData.project_id || null
         };
 
@@ -111,18 +116,43 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
             payload.user_name = user?.email?.split('@')[0] || 'User'; // Creator
         }
 
-        const query = editTask
-            ? supabase.from('tasks').update(payload).eq('id', editTask.id)
-            : supabase.from('tasks').insert(payload);
+        let taskId = editTask?.id;
 
-        const { error: submitError } = await query;
-
-        if (!submitError) {
-            onSuccess();
-            onClose();
+        if (editTask) {
+            const { error: updateError } = await supabase.from('tasks').update(payload).eq('id', editTask.id);
+            if (updateError) {
+                setError(updateError.message);
+                setLoading(false);
+                return;
+            }
         } else {
-            setError(submitError.message);
+            const { data: newTask, error: insertError } = await supabase.from('tasks').insert(payload).select().single();
+            if (insertError) {
+                setError(insertError.message);
+                setLoading(false);
+                return;
+            }
+            taskId = newTask.id;
         }
+
+        // Handle Assignments (Delete all and re-insert for simplicity)
+        if (taskId) {
+            // 1. Delete existing assignments
+            await supabase.from('task_assignments').delete().eq('task_id', taskId);
+
+            // 2. Insert new assignments
+            if (formData.assignees.length > 0) {
+                const assignments = formData.assignees.map(userId => ({
+                    task_id: taskId,
+                    user_id: userId
+                }));
+                const { error: assignError } = await supabase.from('task_assignments').insert(assignments);
+                if (assignError) console.error('Error saving assignments:', assignError);
+            }
+        }
+
+        onSuccess();
+        onClose();
         setLoading(false);
     };
 
@@ -153,10 +183,10 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
 
                                         if (proj) {
                                             updates.client_name = proj.client_name;
-                                            // Fetch project members and auto-assign one (optional)
+                                            // Fetch project members and auto-assign
                                             const { data: members } = await supabase.from('project_members').select('user_id').eq('project_id', projId);
                                             if (members && members.length > 0) {
-                                                updates.assigned_to = members[0].user_id;
+                                                updates.assignees = members.map(m => m.user_id);
                                             }
                                         }
                                         setFormData({ ...formData, ...updates });
@@ -186,19 +216,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSuccess
                         </div>
 
                         <div className="space-y-1.5 col-span-2">
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest text-blue-600">Assign To</label>
-                            <div className="relative">
-                                <select
-                                    required
-                                    value={formData.assigned_to}
-                                    onChange={(e) => setFormData({ ...formData, assigned_to: e.target.value })}
-                                    className="w-full px-4 py-2.5 bg-blue-50/50 border border-blue-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-100 appearance-none cursor-pointer font-bold text-blue-700"
-                                >
-                                    <option value="">Select User</option>
-                                    {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-                                </select>
-                                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-400 pointer-events-none" />
-                            </div>
+                            <MultiSelect
+                                label="Assign To"
+                                placeholder="Select users..."
+                                options={profiles.map(p => ({ label: p.full_name, value: p.id }))}
+                                selectedValues={formData.assignees}
+                                onChange={(vals) => setFormData({ ...formData, assignees: vals })}
+                            />
                         </div>
 
                         <div className="space-y-1.5 col-span-2">

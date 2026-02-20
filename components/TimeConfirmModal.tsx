@@ -7,6 +7,7 @@ interface TimeConfirmModalProps {
     isOpen: boolean;
     calculatedSeconds: number;
     onConfirm: (adjustedSeconds: number) => void;
+    onDiscard: () => void;
     onCancel: () => void;
 }
 
@@ -14,10 +15,12 @@ export const TimeConfirmModal: React.FC<TimeConfirmModalProps> = ({
     isOpen,
     calculatedSeconds,
     onConfirm,
+    onDiscard,
     onCancel
 }) => {
     const [hours, setHours] = useState('0');
     const [minutes, setMinutes] = useState('0');
+    const [errors, setErrors] = useState({ hours: false, minutes: false });
 
     useEffect(() => {
         if (isOpen) {
@@ -25,13 +28,28 @@ export const TimeConfirmModal: React.FC<TimeConfirmModalProps> = ({
             const m = Math.floor((calculatedSeconds % 3600) / 60);
             setHours(h.toString());
             setMinutes(m.toString());
+            setErrors({ hours: false, minutes: false });
         }
     }, [isOpen, calculatedSeconds]);
 
+    const validate = (type: 'hours' | 'minutes', value: string) => {
+        const num = parseInt(value);
+        const isError = isNaN(num) || num < 0;
+        setErrors(prev => ({ ...prev, [type]: isError }));
+        return isError;
+    };
+
     const handleConfirm = () => {
-        const totalSeconds = (parseInt(hours) || 0) * 3600 + (parseInt(minutes) || 0) * 60;
+        const h = parseInt(hours);
+        const m = parseInt(minutes);
+
+        if (isNaN(h) || h < 0 || isNaN(m) || m < 0) return;
+
+        const totalSeconds = h * 3600 + m * 60;
         onConfirm(totalSeconds);
     };
+
+    const hasError = errors.hours || errors.minutes;
 
     if (!isOpen) return null;
 
@@ -70,22 +88,33 @@ export const TimeConfirmModal: React.FC<TimeConfirmModalProps> = ({
                                 <label className="text-xs font-bold text-gray-500">Hours</label>
                                 <input
                                     type="number"
-                                    min="0"
                                     value={hours}
-                                    onChange={(e) => setHours(e.target.value)}
-                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl text-lg font-bold text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                    onChange={(e) => {
+                                        setHours(e.target.value);
+                                        validate('hours', e.target.value);
+                                    }}
+                                    className={`w-full px-4 py-3 bg-gray-50 border-2 rounded-xl text-lg font-bold text-gray-900 outline-none transition-all ${errors.hours
+                                        ? 'border-red-500 focus:border-red-500 focus:ring-red-100'
+                                        : 'border-gray-200 focus:border-blue-500 focus:ring-blue-100'
+                                        }`}
                                 />
+                                {errors.hours && <p className="text-[10px] font-bold text-red-500">Time cannot be negative</p>}
                             </div>
                             <div className="space-y-2">
                                 <label className="text-xs font-bold text-gray-500">Minutes</label>
                                 <input
                                     type="number"
-                                    min="0"
-                                    max="59"
                                     value={minutes}
-                                    onChange={(e) => setMinutes(e.target.value)}
-                                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl text-lg font-bold text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                                    onChange={(e) => {
+                                        setMinutes(e.target.value);
+                                        validate('minutes', e.target.value);
+                                    }}
+                                    className={`w-full px-4 py-3 bg-gray-50 border-2 rounded-xl text-lg font-bold text-gray-900 outline-none transition-all ${errors.minutes
+                                        ? 'border-red-500 focus:border-red-500 focus:ring-red-100'
+                                        : 'border-gray-200 focus:border-blue-500 focus:ring-blue-100'
+                                        }`}
                                 />
+                                {errors.minutes && <p className="text-[10px] font-bold text-red-500">Time cannot be negative</p>}
                             </div>
                         </div>
                     </div>
@@ -105,8 +134,18 @@ export const TimeConfirmModal: React.FC<TimeConfirmModalProps> = ({
                         Cancel
                     </button>
                     <button
+                        onClick={onDiscard}
+                        className="flex-1 px-4 py-3 bg-red-50 text-red-600 border-2 border-transparent hover:border-red-100 rounded-xl font-bold hover:bg-red-100 transition-all"
+                    >
+                        Discard
+                    </button>
+                    <button
                         onClick={handleConfirm}
-                        className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-bold hover:shadow-lg hover:scale-105 transition-all flex items-center justify-center gap-2"
+                        disabled={hasError}
+                        className={`flex-1 px-4 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${hasError
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:shadow-lg hover:scale-105'
+                            }`}
                     >
                         <Check className="w-4 h-4" />
                         Confirm & Save

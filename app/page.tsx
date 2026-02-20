@@ -14,6 +14,7 @@ import { Loader2, Plus, Users, Tag, LayoutGrid } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { TimeConfirmModal } from "@/components/TimeConfirmModal";
 import { TaskDetailView } from "@/components/TaskDetailView";
+import { ProjectDetailView } from "@/components/ProjectDetailView";
 
 export default function Home() {
   const { user, loading: authLoading } = useAuth();
@@ -31,6 +32,7 @@ export default function Home() {
     activeRange,
     referenceDate,
     resetFilters,
+    activeTimerMap,
     startTimer,
     stopTimer
   } = useTasks();
@@ -57,8 +59,14 @@ export default function Home() {
   }>({ isOpen: false, taskId: '', calculatedSeconds: 0, existingSeconds: 0 });
 
   // Task detail view state
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const selectedTask = selectedTaskId ? tasks.find(t => t.id === selectedTaskId) || null : null;
   const [isDetailViewOpen, setIsDetailViewOpen] = useState(false);
+
+  // Project detail view state
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const selectedProject = selectedProjectId ? projects.find(p => p.id === selectedProjectId) || null : null;
+  const [isProjectDetailOpen, setIsProjectDetailOpen] = useState(false);
 
   if (authLoading) {
     return (
@@ -75,13 +83,24 @@ export default function Home() {
   const handleDeleteTask = async (id: string) => {
     if (!confirm('Are you sure you want to delete this task?')) return;
     const { error } = await supabase.from('tasks').delete().eq('id', id);
-    if (!error) refresh();
+    if (!error) {
+      if (selectedTaskId === id) {
+        setIsDetailViewOpen(false);
+        setSelectedTaskId(null);
+      }
+      refresh();
+    }
     else alert(error.message);
   };
 
 
   const handleDeleteProject = async (id: string) => {
     if (!confirm('Are you sure you want to delete this project? Tasks linked to this project will become "General Tasks".')) return;
+
+    // 1. Unlink tasks first (Safety)
+    await supabase.from('tasks').update({ project_id: null }).eq('project_id', id);
+
+    // 2. Delete the project
     const { error } = await supabase.from('projects').delete().eq('id', id);
     if (!error) refresh();
     else alert(error.message);
@@ -101,6 +120,10 @@ export default function Home() {
   const handleStopTimerWithConfirm = (taskId: string, calculatedSeconds: number) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
+
+    // Calculate elapsed time from the active timer map, NOT the task.timer_start
+    // calculatedSeconds passed from TaskTable is likely based on the local timer tick, which is good.
+    // existingSeconds is the baseline.
 
     setTimeConfirmModal({
       isOpen: true,
@@ -123,42 +146,49 @@ export default function Home() {
 
     // Calculate session times
     const sessionEnd = new Date().toISOString();
-    const sessionStart = task.timer_start;
 
-    // Update task
-    const { error: taskError } = await supabase
-      .from('tasks')
-      .update({
-        timer_start: null,
-        total_seconds: newTotalSeconds,
-        time_taken: formatSeconds(newTotalSeconds)
-      })
-      .eq('id', timeConfirmModal.taskId);
+    // We need the legacy format for the UI/Search, but the RPC handles the math safely
+    const estimatedTotal = (task.total_seconds || 0) + adjustedSeconds;
+    const timeTakenStr = formatSeconds(estimatedTotal);
 
-    // Create time log entry
-    if (!taskError && user) {
-      await supabase
-        .from('time_logs')
-        .insert({
-          task_id: timeConfirmModal.taskId,
-          user_id: user.id,
-          user_name: user.email?.split('@')[0] || 'Unknown',
-          seconds_logged: adjustedSeconds,
-          session_start: sessionStart,
-          session_end: sessionEnd
-        });
-    }
+    // Call RPC to atomically update logs and task total
+    const { error: rpcError } = await supabase.rpc('stop_timer_session', {
+      p_task_id: timeConfirmModal.taskId,
+      p_user_id: user.id,
+      p_seconds_logged: adjustedSeconds,
+      p_session_end: sessionEnd,
+      p_time_taken_str: timeTakenStr
+    });
 
-    if (!taskError) {
+    if (!rpcError) {
       refresh();
       setTimeConfirmModal({ isOpen: false, taskId: '', calculatedSeconds: 0, existingSeconds: 0 });
     } else {
-      alert(taskError.message);
+      alert(rpcError.message);
+    }
+  };
+
+  const handleDiscardTimer = async () => {
+    // Just delete the open log entry
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('time_logs')
+      .delete()
+      .eq('task_id', timeConfirmModal.taskId)
+      .eq('user_id', user.id)
+      .is('session_end', null);
+
+    if (!error) {
+      refresh();
+      setTimeConfirmModal({ isOpen: false, taskId: '', calculatedSeconds: 0, existingSeconds: 0 });
+    } else {
+      alert(error.message);
     }
   };
 
   const handleTaskClick = (task: Task) => {
-    setSelectedTask(task);
+    setSelectedTaskId(task.id);
     setIsDetailViewOpen(true);
   };
 
@@ -247,7 +277,7 @@ export default function Home() {
           {/* Conditional Content */}
           {activeTab === 'tasks' ? (
             <TaskTable
-              tasks={filters.showOnlyMine ? tasks.filter(t => t.assigned_to === user.id) : tasks}
+              tasks={filters.showOnlyMine ? tasks.filter(t => t.assigned_to === user.id || t.assignees.some(a => a.user_id === user.id)) : tasks}
               loading={tasksLoading}
               filters={filters}
               setFilters={setFilters}
@@ -261,6 +291,7 @@ export default function Home() {
               onStartTimer={startTimer}
               onStopTimer={handleStopTimerWithConfirm}
               onTaskClick={handleTaskClick}
+              activeTimerMap={activeTimerMap}
             />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -278,8 +309,8 @@ export default function Home() {
                     handleDeleteProject(project.id);
                   }}
                   onClick={() => {
-                    setFilters({ ...filters, projectId: project.id, showOnlyMine: false });
-                    setActiveTab('tasks');
+                    setSelectedProjectId(project.id);
+                    setIsProjectDetailOpen(true);
                   }}
                 />
               ))}
@@ -329,6 +360,7 @@ export default function Home() {
         isOpen={timeConfirmModal.isOpen}
         calculatedSeconds={timeConfirmModal.calculatedSeconds}
         onConfirm={confirmTimerStop}
+        onDiscard={handleDiscardTimer}
         onCancel={() => setTimeConfirmModal({ isOpen: false, taskId: '', calculatedSeconds: 0, existingSeconds: 0 })}
       />
 
@@ -342,6 +374,22 @@ export default function Home() {
           }
         }}
         onUpdate={refresh}
+      />
+
+      <ProjectDetailView
+        project={selectedProject}
+        tasks={tasks}
+        members={projectMembers}
+        isOpen={isProjectDetailOpen}
+        onClose={() => setIsProjectDetailOpen(false)}
+        activeTimerMap={activeTimerMap}
+        onStartTimer={startTimer}
+        onStopTimer={handleStopTimerWithConfirm}
+        onTaskClick={(taskId) => {
+          setIsProjectDetailOpen(false); // Close project view first
+          const task = tasks.find(t => t.id === taskId);
+          if (task) handleTaskClick(task);
+        }}
       />
 
       <footer className="py-8 text-center border-t border-gray-100 bg-white">

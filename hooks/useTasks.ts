@@ -37,9 +37,16 @@ export interface Task {
     project_id: string | null;
     total_seconds: number;
     timer_start: string | null;
+    assignees: { user_id: string; user_name: string; avatar_url?: string }[];
 }
 
 export type TimePreset = 'today' | 'week' | 'month' | 'custom' | 'all';
+
+export interface ActiveTimer {
+    taskId: string;
+    startTime: string; // ISO string
+    logId: string;
+}
 
 export const useTasks = () => {
     const [tasks, setTasks] = useState<Task[]>([]);
@@ -68,22 +75,59 @@ export const useTasks = () => {
         direction: 'desc' as 'asc' | 'desc'
     });
 
+    const [activeTimerMap, setActiveTimerMap] = useState<Record<string, ActiveTimer | null>>({});
+
     const loadData = async () => {
         setLoading(true);
         try {
-            const [tasksRes, projectsRes, membersRes] = await Promise.all([
+            // Get current user for active timers
+            const { data: { user } } = await supabase.auth.getUser();
+
+            const [tasksRes, projectsRes, membersRes, assignmentsRes, profilesRes, activeTimersRes] = await Promise.all([
                 supabase.from('tasks').select('*').order('start_date', { ascending: false }),
                 supabase.from('projects').select('*').order('created_at', { ascending: false }),
-                supabase.from('project_members').select('*')
+                supabase.from('project_members').select('*'),
+                supabase.from('task_assignments').select('*'),
+                supabase.from('profiles').select('id, full_name, avatar_url'),
+                user ? supabase.from('time_logs')
+                    .select('id, task_id, session_start')
+                    .eq('user_id', user.id)
+                    .is('session_end', null) : Promise.resolve({ data: [], error: null })
             ]);
 
             if (tasksRes.error) throw tasksRes.error;
             if (projectsRes.error) throw projectsRes.error;
             if (membersRes.error) throw membersRes.error;
 
-            setTasks(tasksRes.data || []);
+            // Map assignments to tasks
+            const tasksWithAssignees = (tasksRes.data || []).map((task: any) => {
+                const taskAssignments = (assignmentsRes.data || []).filter((a: any) => a.task_id === task.id);
+                const assignees = taskAssignments.map((a: any) => {
+                    const profile = (profilesRes.data || []).find((p: any) => p.id === a.user_id);
+                    return {
+                        user_id: a.user_id,
+                        user_name: profile?.full_name || 'Unknown',
+                        avatar_url: profile?.avatar_url
+                    };
+                });
+                return { ...task, assignees };
+            });
+
+            setTasks(tasksWithAssignees);
             setProjects(projectsRes.data || []);
             setProjectMembers(membersRes.data || []);
+
+            // Process active timers
+            const timerMap: Record<string, ActiveTimer | null> = {};
+            (activeTimersRes.data || []).forEach((log: any) => {
+                timerMap[log.task_id] = {
+                    taskId: log.task_id,
+                    startTime: log.session_start,
+                    logId: log.id
+                };
+            });
+            setActiveTimerMap(timerMap);
+
         } catch (err: any) {
             setError(err.message);
         } finally {
@@ -93,6 +137,29 @@ export const useTasks = () => {
 
     useEffect(() => {
         loadData();
+
+        // Real-time subscription
+        const channel = supabase
+            .channel('tasks_channel')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'tasks' },
+                (payload) => {
+                    if (payload.eventType === 'INSERT') {
+                        // For simplicity, reload to get joined data (client/project/assignees)
+                        loadData();
+                    } else if (payload.eventType === 'UPDATE') {
+                        loadData();
+                    } else if (payload.eventType === 'DELETE') {
+                        setTasks(current => current.filter(t => t.id !== payload.old.id));
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, []);
 
     const navigateTime = (direction: 'prev' | 'next') => {
@@ -123,7 +190,8 @@ export const useTasks = () => {
 
             const matchesUser = !filters.user ||
                 task.user_name === filters.user ||
-                task.assigned_to_name === filters.user;
+                task.assigned_to_name === filters.user ||
+                task.assignees.some(a => a.user_name === filters.user);
 
             const matchesClient = !filters.client || task.client_name === filters.client;
             const matchesType = !filters.type || task.asset_type === filters.type;
@@ -132,12 +200,25 @@ export const useTasks = () => {
                 task.task_name.toLowerCase().includes(filters.search.toLowerCase()) ||
                 task.client_name.toLowerCase().includes(filters.search.toLowerCase()) ||
                 task.user_name.toLowerCase().includes(filters.search.toLowerCase()) ||
-                (task.assigned_to_name || "").toLowerCase().includes(filters.search.toLowerCase());
+                (task.assigned_to_name || "").toLowerCase().includes(filters.search.toLowerCase()) ||
+                task.assignees.some(a => a.user_name.toLowerCase().includes(filters.search.toLowerCase()));
 
             let matchesDate = true;
             if (activeRange) {
-                const taskDate = parseISO(task.start_date);
-                matchesDate = isWithinInterval(taskDate, activeRange);
+                if (!task.start_date) {
+                    matchesDate = false;
+                } else {
+                    try {
+                        const taskDate = parseISO(task.start_date);
+                        if (isNaN(taskDate.getTime())) {
+                            matchesDate = false;
+                        } else {
+                            matchesDate = isWithinInterval(taskDate, activeRange);
+                        }
+                    } catch (e) {
+                        matchesDate = false;
+                    }
+                }
             }
 
             return matchesProject && matchesUser && matchesClient && matchesType && matchesStatus && matchesSearch && matchesDate;
@@ -165,14 +246,17 @@ export const useTasks = () => {
 
                 // Logic hardening: Handle time_taken parsing (e.g., "1hr 30min")
                 if (sort.column === 'time_taken') {
-                    const parseTime = (str: string) => {
+                    const getSeconds = (item: any) => {
+                        if (typeof item.total_seconds === 'number') return item.total_seconds;
+
+                        const str = item.time_taken;
                         if (!str) return 0;
                         const hrs = parseInt(str.match(/(\d+)hr/)?.[1] || '0');
                         const mins = parseInt(str.match(/(\d+)min/)?.[1] || '0');
-                        return (hrs * 60) + mins;
+                        return (hrs * 3600) + (mins * 60);
                     };
-                    valA = parseTime(valA);
-                    valB = parseTime(valB);
+                    valA = getSeconds(a);
+                    valB = getSeconds(b);
                 }
 
                 // Logic hardening: Handle nulls/undefined for all types
@@ -206,10 +290,27 @@ export const useTasks = () => {
     };
 
     const startTimer = async (taskId: string) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
         const now = new Date().toISOString();
+
+        // 1. Create a new active session in time_logs
         const { error } = await supabase
+            .from('time_logs')
+            .insert({
+                task_id: taskId,
+                user_id: user.id,
+                user_name: user.email?.split('@')[0] || 'Unknown',
+                seconds_logged: 0, // Placeholder
+                session_start: now,
+                session_end: null
+            });
+
+        // 2. Update task status to In Progress if needed (optional, but good for visibility)
+        await supabase
             .from('tasks')
-            .update({ timer_start: now, status: 'In Progress' })
+            .update({ status: 'In Progress' })
             .eq('id', taskId);
 
         if (!error) loadData();
@@ -217,25 +318,10 @@ export const useTasks = () => {
     };
 
     const stopTimer = async (taskId: string) => {
-        const task = tasks.find(t => t.id === taskId);
-        if (!task || !task.timer_start) return;
-
-        const startTime = new Date(task.timer_start).getTime();
-        const endTime = new Date().getTime();
-        const elapsedSeconds = Math.floor((endTime - startTime) / 1000);
-        const newTotalSeconds = (task.total_seconds || 0) + elapsedSeconds;
-
-        const { error } = await supabase
-            .from('tasks')
-            .update({
-                timer_start: null,
-                total_seconds: newTotalSeconds,
-                time_taken: formatSeconds(newTotalSeconds)
-            })
-            .eq('id', taskId);
-
-        if (!error) loadData();
-        else setError(error.message);
+        // This is now purely a helper to get the start time for the UI logic
+        // The actual DB update happens in page.tsx via confirmTimerStop -> stop_timer_session RPC
+        // We just reload data here if needed, but mostly we rely on the modal flow.
+        return activeTimerMap[taskId]?.startTime;
     };
 
     const formatSeconds = (seconds: number) => {
@@ -261,6 +347,7 @@ export const useTasks = () => {
         activeRange,
         referenceDate,
         resetFilters,
+        activeTimerMap,
         startTimer,
         stopTimer
     };

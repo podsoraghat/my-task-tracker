@@ -84,6 +84,13 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({ isOpen, onClose, onS
         setLoading(true);
         setError(null);
 
+        // Date Logic Validation
+        if (new Date(formData.deadline) < new Date(formData.start_date)) {
+            setError('Deadline cannot be before the Kickoff Date.');
+            setLoading(false);
+            return;
+        }
+
         const projectPayload = {
             ...formData,
             created_by: user?.id
